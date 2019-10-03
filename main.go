@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"github.com/klauspost/reedsolomon"
 	"github.com/racin/entangle/entangler"
+	"github.com/racin/entangle/swarmconnector"
 	"io/ioutil"
 	"os"
 	"strconv"
 )
 
 const (
-	dataShards   = 112 //4
-	parityShards = 16  //12
+	dataShards   = 4  //112 //4
+	parityShards = 12 //16  //12
 )
 
 var (
@@ -98,7 +99,7 @@ func upload() {
 	// numChunks, err := entangler.ChunkFile(file)
 
 	// // Upload
-	// swarmconnector.UploadAllChunks()
+	swarmconnector.UploadAllChunks()
 }
 
 func WriteChunkToFile(data []byte, bucket, index int) {
