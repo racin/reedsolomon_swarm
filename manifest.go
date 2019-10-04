@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/klauspost/reedsolomon"
 	"github.com/racin/entangle/entangler"
+	"math/rand"
 	"os"
 	"reflect"
 	"strconv"
@@ -52,14 +53,15 @@ func (manifest *RS_Manifest) createBuckets(conf map[string]string, keys []reflec
 				Shards: make([]*RS_Shard, 0, dataShards+parityShards)}
 		}
 
-		/*rnd := rand.Intn(100)
+		rnd := rand.Intn(100)
 		var unavail bool
-		if rnd < unAvailablePct {
+		if rnd < failrate {
 			unavail = true
-		}*/
+		}
 
 		buckets[left].Shards = append(buckets[left].Shards, &RS_Shard{
 			Identifier: conf[keyStr], Bucket: left, Position: right,
+			IsUnavailable: unavail,
 		})
 	}
 	for i := 1; i <= len(buckets); i++ {
@@ -68,13 +70,17 @@ func (manifest *RS_Manifest) createBuckets(conf map[string]string, keys []reflec
 }
 
 func NewRS_Manifest(confpath string, dataShards, parityShards int, datarequest chan *DownloadRequest) *RS_Manifest {
+	return NewRS_ManifestWithFail(confpath, dataShards, parityShards, datarequest, 0)
+}
+
+func NewRS_ManifestWithFail(confpath string, dataShards, parityShards int, datarequest chan *DownloadRequest, failrate int) *RS_Manifest {
 	conf, _ := entangler.LoadFileStructure(confpath)
 	var manifest *RS_Manifest = &RS_Manifest{
 		Buckets:     make([]*RS_Bucket, 0, len(conf)/(dataShards+parityShards)),
 		DataRequest: datarequest,
 		DataStream:  make(chan *RS_Shard, len(conf)),
 	}
-	manifest.createBuckets(conf, reflect.ValueOf(conf).MapKeys(), dataShards, parityShards, 0)
+	manifest.createBuckets(conf, reflect.ValueOf(conf).MapKeys(), dataShards, parityShards, failrate)
 	return manifest
 }
 
