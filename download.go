@@ -56,8 +56,11 @@ func (p *DownloadPool) DownloadBlock(block *RS_Shard, result chan *RS_Shard) {
 
 	if block.IsUnavailable {
 		DebugPrint("UNAVAILABLE BLOCK %v\n", block.String())
+
+		time.Sleep(1000 * time.Millisecond)
 		fmt.Println("unexpected HTTP status: 404 Not Found")
 		fmt.Print(block.Log())
+
 		result <- block
 		return
 	}
@@ -107,9 +110,10 @@ func (p *DownloadPool) DownloadBlock(block *RS_Shard, result chan *RS_Shard) {
 	}
 }
 func (p *DownloadPool) DownloadFile(config, output string) error {
-	manifest := NewRS_Manifest(config, dataShards, parityShards, p.Datarequests)
+	manifest := NewRS_ManifestWithFail(config, dataShards, parityShards, p.Datarequests, 15)
 	p.reedsolomon = manifest
 
+	needMinimum := dataShards * len(manifest.Buckets)
 	// 2. Attempt to download Data Blocks
 	for i := 0; i < totalShards; i++ {
 		for j := 0; j < len(manifest.Buckets); j++ {
@@ -136,12 +140,17 @@ repairs:
 				break repairs
 			} else if !dl.HasData() {
 				// repair
-				DebugPrint("Block was missing. Position: %d\n", dl.Position)
+				//DebugPrint("Block was missing. Position: %d\n", dl.Position)
 			} else {
-				DebugPrint("Download success. %v\n", dl.String())
-				DebugPrint("Data block download success. Bucket: %d, Position: %d\n", dl.Bucket, dl.Position)
+				if blocks < needMinimum {
+					blocks++
+					break
+				}
+				//DebugPrint("Download success. %v\n", dl.String())
+				//DebugPrint("Data block download success. Bucket: %d, Position: %d\n", dl.Bucket, dl.Position)
 
 				if manifest.CanReconstruct() {
+					blocks = 0
 					for i := 0; i < totalShards; i++ {
 						for j := 0; j < len(manifest.Buckets); j++ {
 							b := manifest.Buckets[j].Shards[i]
@@ -182,7 +191,6 @@ func (p *DownloadPool) reserve() *Downloader {
 	select {
 	case d = <-p.resource:
 	default:
-		DebugPrint("Generating new resource\n")
 		d = newDownloader(p.endpoint)
 		p.count++
 	}
