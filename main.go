@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"github.com/klauspost/reedsolomon"
 	"github.com/racin/entangle/entangler"
@@ -14,6 +15,7 @@ import (
 const (
 	dataShards   = 4  //112 //4
 	parityShards = 12 //16  //12
+	totalShards  = dataShards + parityShards
 )
 
 var (
@@ -26,16 +28,48 @@ func readFile(filepath string) error {
 	return err
 }
 func main() {
+
+	//upload()
+	download()
+
+	//_ = restructTest("file.jpeg")
+}
+
+func restructTest(filepath string) error {
 	if err := readFile("resources/AlgardStasjon.jpg"); err != nil {
 		fmt.Println(err.Error())
 		os.Exit(1)
 	}
 
-	//upload()
-	_ = ParseRS_Manifest("resources/retrives.txt", dataShards, parityShards)
+	b := make([][]byte, 0, 0)
+	for data, i := getData(1), 1; len(data) > 0; data = getData(i) {
+		b = append(b, data)
+		i++
+	}
 
+	f, err := os.Create(filepath)
+	if err != nil {
+		return err
+	}
+	w := bufio.NewWriter(f)
+
+	for i := 0; i < len(b); i++ {
+		w.Write(b[i])
+	}
+	w.Flush()
+	return nil
 }
+func download() {
+	dp := NewDownloadPool(100, "https://swarm-gateways.net")
+	t := time.Now().UnixNano()
+	err := dp.DownloadFile("resources/retrives.txt", "files/main_"+fmt.Sprintf("%d", t)+".jpeg")
+	fmt.Println("Downloaded file")
+	if err != nil {
+		fmt.Println(err.Error())
+	}
 
+	fmt.Printf("%d,%d\n", t, time.Now().UnixNano())
+}
 func max(x, y int) int {
 	if x > y {
 		return x
@@ -58,16 +92,23 @@ func checkErr(err error) {
 func getData(index int) []byte {
 	sliceSize := 4096 * (dataShards)
 	minI := min(len(fileBytes), max(0, sliceSize*(index-1)))
-	return fileBytes[minI:min(len(fileBytes), sliceSize*index)]
+	maxI := min(len(fileBytes), sliceSize*index)
+	return fileBytes[minI:maxI]
 }
 
 func upload() {
-	chunks := make([][]byte, 0, len(fileBytes)/4096)
-	for data, i := getData(1), 1; len(data) > 0; data, i = getData(i), i+1 {
+	if err := readFile("resources/AlgardStasjon.jpg"); err != nil {
+		fmt.Println(err.Error())
+		os.Exit(1)
+	}
+
+	for data, i := getData(1), 1; len(data) > 0; data = getData(i) {
 		enc, err := reedsolomon.New(dataShards, parityShards)
 		checkErr(err)
 
-		split, err := enc.Split(data)
+		idata := make([]byte, len(data))
+		copy(idata, data)
+		split, err := enc.Split(idata)
 		checkErr(err)
 
 		err = enc.Encode(split)
@@ -84,23 +125,12 @@ func upload() {
 			os.Exit(1)
 		}
 
-		chunks = append(chunks, split[:]...)
-
 		for j := 0; j < len(split); j++ {
 			WriteChunkToFile(split[j], i, j)
 		}
+		i++
 	}
 
-	fmt.Println("OK")
-	//	file, err := os.Open(filepath)
-	// if err != nil {
-	// 	os.Exit(1)
-	// }
-
-	// // Chunker
-	// numChunks, err := entangler.ChunkFile(file)
-
-	// // Upload
 	swarmconnector.UploadAllChunks()
 }
 
