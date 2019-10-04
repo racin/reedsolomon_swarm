@@ -8,6 +8,7 @@ import (
 	"io/ioutil"
 	"os"
 	"strconv"
+	"time"
 )
 
 const (
@@ -25,13 +26,14 @@ func readFile(filepath string) error {
 	return err
 }
 func main() {
-	fmt.Println("Hello world!")
 	if err := readFile("resources/AlgardStasjon.jpg"); err != nil {
 		fmt.Println(err.Error())
 		os.Exit(1)
 	}
 
-	upload()
+	//upload()
+	_ = ParseRS_Manifest("resources/retrives.txt", dataShards, parityShards)
+
 }
 
 func max(x, y int) int {

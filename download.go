@@ -20,34 +20,33 @@ type Downloader struct {
 }
 
 type DownloadPool struct {
-	lock     sync.Mutex       // Locking
-	resource chan *Downloader // Channel to obtain resource from the pool
-	lattice  *e.Lattice       // Shared map of retrieved blocks
-	Capacity int              // Maximum capacity of the pool.
-	count    int              // Current count of allocated resources.
-	//Filepath     string           // Final output location
+	lock         sync.Mutex       // Locking
+	resource     chan *Downloader // Channel to obtain resource from the pool
+	lattice      *e.Lattice       // Shared map of retrieved blocks
+	Capacity     int              // Maximum capacity of the pool.
+	count        int              // Current count of allocated resources.
 	endpoint     string
-	Datarequests chan *e.DownloadRequest
+	Datarequests chan *DownloadRequest
 	datastream   chan *e.DownloadResponse
+}
+
+type DownloadRequest struct {
+	Result chan *RS_Shard
+	Block  *RS_Shard
 }
 
 func NewDownloadPool(capacity int, endpoint string) *DownloadPool {
 	d := &DownloadPool{
 		resource:     make(chan *Downloader, capacity),
-		Datarequests: make(chan *e.DownloadRequest),
-		//lattice:  data.NewLattice(entangler.Alpha, entangler.S, entangler.P),
-		Capacity: capacity,
-		count:    0,
-		//Filepath: filepath,
-		endpoint: endpoint,
+		Datarequests: make(chan *DownloadRequest),
+		Capacity:     capacity,
+		count:        0,
+		endpoint:     endpoint,
 	}
 	go func() {
 		for {
 			select {
 			case request := <-d.Datarequests:
-				// 	fmt.Printf("GOT DATA REQUEST. IsParity:%c, Pos: %d, Left: %d, Right: %d\n",
-				// 		request.Block.IsParity, request.Block.Left[0].Position,
-				// 		request.Block.Right[0].Position, request.Block.Position)
 				go d.DownloadBlock(request.Block, request.Result)
 			}
 		}
@@ -65,19 +64,6 @@ func (p *DownloadPool) DownloadBlock(block *RS_Shard, result chan *RS_Shard) {
 		fmt.Printf("%t,%d,%d,%d,%t,%d,%d,%t\n", block.IsParity, block.Position, block.LeftPos(0), block.RightPos(0), block.HasData(), time.Now().UnixNano(), time.Now().UnixNano(), false)
 		result <- block
 		return
-	}
-	if block.IsParity && len(block.Left) > 0 && len(block.Right) > 0 {
-		if _, ok := unAvailableParity[block.Left[0].Position]; ok {
-			for i := 0; i < len(unAvailableParity[block.Left[0].Position]); i++ {
-				if unAvailableParity[block.Left[0].Position][i] == block.Right[0].Position {
-					e.DebugPrint("UNAVAILABLE PARITY BLOCK %v\n", block.String())
-					fmt.Println("unexpected HTTP status: 404 Not Found")
-					fmt.Printf("%t,%d,%d,%d,%t,%d,%d,%t\n", block.IsParity, block.Position, block.LeftPos(0), block.RightPos(0), block.HasData(), time.Now().UnixNano(), time.Now().UnixNano(), false)
-					result <- block
-					return
-				}
-			}
-		}
 	}
 
 	if block.HasData() {
@@ -214,8 +200,8 @@ repairs:
 	}
 	// 4. Rebuild the file
 
-	fmt.Printf("Downloaded total. Datablocks: %d, Parityblocks: %d\n", datablocks, parityblocks)
-	return lattice.RebuildFile(output)
+	fmt.Printf("Downloaded total. Blocks: %d\n", blocks)
+	return (output)
 }
 
 // Drain drains the pool until it has no more than n resources
@@ -228,9 +214,6 @@ func (p *DownloadPool) Drain(n int) {
 	}
 }
 
-// Reserve is blocking until it returns an available tree
-// it reuses free trees or creates a new one if size is not reached
-// TODO: should use a context here
 func (p *DownloadPool) reserve() *Downloader {
 	p.lock.Lock()
 	defer p.lock.Unlock()
@@ -250,7 +233,7 @@ func (p *DownloadPool) reserve() *Downloader {
 
 // release gives back a Downloader to the pool
 func (p *DownloadPool) release(d *Downloader) {
-	p.resource <- d // can never fail ...
+	p.resource <- d
 }
 
 // Initizalites a new downloader
@@ -259,183 +242,3 @@ func newDownloader(endpoint string) *Downloader {
 		Client: bzzclient.NewClient(endpoint),
 	}
 }
-
-type Config map[string]string
-
-func LoadFileStructure(path string) (map[string]string, error) {
-
-	var fs map[string]string = make(map[string]string)
-	conf, err := ioutil.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
-	if err = json.Unmarshal(conf, &fs); err != nil {
-		return nil, err
-	}
-
-	return fs, nil
-}
-
-/// Strategy 1: Hierarchical
-/// Strategy 2: Round-robin (Tail latency)
-// func (d *Downloader) AsyncDownloadAndReconstruct(content map[string][]byte, dataIndex string) error {
-// 	if d.CanReconstruct(dataIndex) {
-
-// 	}
-
-// 	file, err := d.client.Download(dp.con)
-// 	if err != nil {
-
-// 	}
-// }
-
-func StringConvertBlockIndex(index ...int) string {
-	lenI := len(index)
-
-	switch lenI {
-	case 1:
-		return strconv.Itoa(index[0])
-	case 2:
-		return "p" + strconv.Itoa(index[0]) + strconv.Itoa(index[1])
-	default:
-		return ""
-	}
-}
-
-// func (d *Downloader) CanReconstruct(content *map[string][]byte, dataIndex string) {
-// 	br, bh, bl := e.GetBackwardNeighbours(dataIndex) // Right, Horizontal, Left
-// 	fr, fh, fl := e.GetForwardNeighbours(dataIndex)
-
-// 	return (*content)[dataIndex] != nil ||
-// 		((*content)[br] != nil && (*content)[fr] != nil) ||
-// 		((*content)[bh] != nil && (*content)[fh] != nil) ||
-// 		((*content)[bl] != nil && (*content)[fl] != nil)
-// }
-
-func DownloadAndReconstruct(filePath string, dataIndexes ...bool) (string, error) {
-	client := bzzclient.NewClient("https://swarm-gateways.net")
-	config, _ := LoadFileStructure("../retrives.txt")
-	var allChunks [][]byte
-	var err error
-
-	// Regular download .
-	//lastData := 1
-	//var missingDataIndex []int
-	for i := 1; i <= len(dataIndexes); i++ {
-		if dataIndexes[i-1] == false {
-			//missingDataIndex = append(missingDataIndex, i)
-			fmt.Print("Missing: " + strconv.Itoa(i) + "\n")
-			br, _, _ := e.GetBackwardNeighbours(i, e.S, e.P)
-			fr, _, _ := e.GetForwardNeighbours(i, e.S, e.P)
-			//Getting filenames to XOR
-			values1 := []string{"p", strconv.Itoa(br), "_", strconv.Itoa(i)}
-			file1 := strings.Join(values1, "")
-			values2 := []string{"p", strconv.Itoa(i), "_", strconv.Itoa(fr)}
-			file2 := strings.Join(values2, "")
-			fmt.Println(file1)
-			fmt.Println(file2)
-			HashBck := config[file1]
-			HashFwd := config[file2]
-
-			if HashBck == "" || HashFwd == "" {
-				hash := config["d"+strconv.Itoa(i)]
-				fmt.Println(hash)
-				dataChunk, err := client.Download(hash, "")
-				if err != nil {
-					fmt.Println(err.Error())
-				}
-				content, err := ioutil.ReadAll(dataChunk)
-				if err != nil {
-					fmt.Println(err.Error())
-				}
-				allChunks = append(allChunks, content)
-			} else {
-				fileA, _ := client.Download(HashBck, "")
-				fileB, _ := client.Download(HashFwd, "")
-
-				contentA, _ := ioutil.ReadAll(fileA)
-				contentB, _ := ioutil.ReadAll(fileB)
-				//fmt.Println(string(contentA)) // hello world
-				//fmt.Println(err) // hello world
-
-				//XOR PARITY CHUNKS
-				Result, _ := e.XORByteSlice(contentA, contentB)
-
-				allChunks = append(allChunks, Result)
-			}
-
-			//Create Result file
-			//_, err = os.Create(entangler.DownloadDirectory + "d" + strconv.Itoa(i))
-
-			//Write XOR content to file
-			//ioutil.WriteFile(entangler.DownloadDirectory+"d"+strconv.Itoa(i), Result, 0644)
-			continue
-		}
-		fmt.Print("NOT Missing: " + strconv.Itoa(i) + "\n")
-		hash := config["d"+strconv.Itoa(i)]
-		fmt.Println(hash)
-		dataChunk, err := client.Download(hash, "")
-		if err != nil {
-			fmt.Println(err.Error())
-		}
-		content, err := ioutil.ReadAll(dataChunk)
-		if err != nil {
-			fmt.Println(err.Error())
-		}
-		allChunks = append(allChunks, content)
-		//lastData = i + 1
-	}
-	fmt.Println("Length of dataIndexes: " + string(strconv.Itoa(len(dataIndexes))))
-	fmt.Println("Length of allChunks: " + string(strconv.Itoa(len(allChunks))))
-	e.RebuildFile(filePath, allChunks...)
-
-	return filePath, err
-}
-
-// func Download() {
-
-// 	br, _, _ := entangler.GetBackwardNeighbours(index)
-// 	fr, _, _ := entangler.GetForwardNeighbours(index)
-
-// 	//Getting filenames to XOR
-// 	values1 := []string{"p", strconv.Itoa(br), "_", strconv.Itoa(index)}
-// 	file1 := strings.Join(values1, "")
-// 	values2 := []string{"p", strconv.Itoa(fr), "_", strconv.Itoa(index)}
-// 	file2 := strings.Join(values2, "")
-
-// 	//Get hashes from file
-
-// 	// assign values from config file to variables
-// 	config, _ := LoadFileStructure("../retrives.txt")
-// 	HashBck := config[file1]
-// 	HashFwd := config[file2]
-// 	/*
-// 	   fmt.Println("F1:",HashBck)
-// 	   fmt.Println("F2:",HashFwd)
-// 	   fmt.Println("a", config["files/hello.txt"])
-// 	*/
-// 	//Retrive hashes
-// 	client := bzzclient.NewClient("http://127.0.0.1:8500")
-
-// 	fileA, err := client.Download(HashBck, "")
-// 	fileB, err := client.Download(HashFwd, "")
-
-// 	if err != nil {
-// 		return
-// 	}
-// 	//file, err := client.Download(config["files/hello.txt"], "")
-// 	contentA, err := ioutil.ReadAll(fileA)
-// 	contentB, err := ioutil.ReadAll(fileB)
-// 	//fmt.Println(string(contentA)) // hello world
-// 	//fmt.Println(err) // hello world
-
-// 	//XOR PARITY CHUNKS
-// 	Result, _ := entangler.XORByteSlice(contentA, contentB)
-// 	//Create Result file
-// 	//DataFile, err = os.Create("files/Result.txt")
-
-// 	//Write XOR content to file
-// 	ioutil.WriteFile("files/Results/Result.txt", Result, 0644)
-
-// }

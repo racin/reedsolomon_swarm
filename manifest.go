@@ -69,6 +69,47 @@ func (s *RS_Shard) HasData() bool {
 	return s != nil && s.Data != nil && len(s.Data) != 0
 }
 
+func (manifest *RS_Manifest) Reconstruct(filepath string) bool {
+	bucketsFilled = true
+	lenBucket = len(manifest.Buckets)
+	if lenBucket == 0 {
+		return false
+	}
+
+	for i := 0; i < lenBucket; i++ {
+		b := manifest.Buckets[i]
+		if b.HasData() {
+			continue
+		} else if b.CanReconstruct() {
+			bucketsFilled |= b.Reconstruct()
+		} else {
+			bucketsFilled = false
+		}
+	}
+
+	if bucketsFilled {
+		w := bufio.NewWriter(f)
+
+		for i := 0; i < lenBucket; i++ {
+			w.Write(manifest.Buckets[i].Data)
+		}
+		w.Flush()
+		return true
+	}
+	return false
+}
+
+func (s *RS_Shard) SetData(data []byte, start, end int64, wasDownload bool) {
+	s.Data = data
+	s.StartTime = start
+	s.EndTime = end
+	s.WasDownloaded = wasDownload
+}
+
+func (s *RS_Bucket) HasData() bool {
+	return s != nil && s.Data != nil && len(s.Data) != 0
+}
+
 func (bucket *RS_Bucket) CanReconstruct() bool {
 	j := bucket.Datashards
 	for i := 0; i < len(bucket.Shards); i++ {
