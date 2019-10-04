@@ -41,7 +41,6 @@ func (manifest *RS_Manifest) createBuckets(conf map[string]string, keys []reflec
 		leftright := strings.Split(keyStr, "_")
 		left, _ := strconv.Atoi(leftright[0])
 		right, _ := strconv.Atoi(leftright[1])
-		var bucket *RS_Bucket
 		var ok bool
 		if _, ok = buckets[left]; !ok {
 			buckets[left] = &RS_Bucket{
@@ -52,11 +51,16 @@ func (manifest *RS_Manifest) createBuckets(conf map[string]string, keys []reflec
 			Identifier: conf[keyStr], Bucket: left, Position: right,
 		})
 	}
+	for i := 1; i <= len(buckets); i++ {
+		manifest.Buckets = append(manifest.Buckets, *buckets[i])
+	}
 }
 
 func ParseRS_Manifest(confpath string, dataShards, parityShards int) *RS_Manifest {
 	conf, _ := entangler.LoadFileStructure(confpath)
-	var manifest *RS_Manifest
+	var manifest *RS_Manifest = &RS_Manifest{
+		Buckets: make([]RS_Bucket, 0, len(conf)/(dataShards+parityShards)),
+	}
 	manifest.createBuckets(conf, reflect.ValueOf(conf).MapKeys(), dataShards, parityShards)
 	return &RS_Manifest{}
 }
@@ -106,4 +110,18 @@ func (bucket *RS_Bucket) Reconstruct() []byte {
 	enc.Join(buf, shards, len(shards[0])*bucket.Datashards)
 
 	return bucket.Data
+}
+
+func (b *RS_Shard) String() string {
+	return fmt.Sprintf("Bucket :%d, Pos: %d, HasData: %t, WasDownloaded: %d, IsUnavailable: %d\n",
+		b.Bucket, b.Position, b.HasData(),
+		b.WasDownloaded, b.IsUnavailable)
+}
+
+// fmt.Printf("%t,%d,%d,%d,%t,%d,%d,%t\n", block.IsParity, block.Position, block.LeftPos(0), block.RightPos(0), block.HasData(), start, time.Now().UnixNano(), false)
+func (b *RS_Shard) Log() string {
+	return fmt.Sprintf("%d,%d,%t,%d,%d,%d,%d\n",
+		b.Bucket, b.Position, b.HasData(),
+		b.WasDownloaded, b.IsUnavailable,
+		b.StartTime, b.EndTime)
 }
